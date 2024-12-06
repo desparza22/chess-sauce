@@ -41,5 +41,5 @@ class QuitEarly:
             root_ratio = self.root_ratio_black
             current_ratio = current_black
          
-        res = current_ratio - root_ratio > 1.5
+        res = current_ratio - root_ratio > 1
         return res
