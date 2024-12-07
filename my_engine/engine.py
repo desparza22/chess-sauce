@@ -9,6 +9,7 @@ from my_engine.search_order import SearchOrder
 from my_engine.linear_reward import LinearReward
 from my_engine.random_order import RandomOrder
 from my_engine.quit_early import QuitEarly
+from my_engine.eval_piece_vals import eval_piece_vals, diff as piece_vals_diff
 
 worst_white_score, worst_black_score = -1_000_000_000, 1_000_000_000
 
@@ -154,6 +155,8 @@ class CalcParams:
     black_can_get: Eval
     distance_from_root: int
     interesting_moves_to_extend_for: int
+    current_eval: float
+    current_game_phase: float
 
 
 def better_eval(a: Optional[float], b: Optional[float], color: chess.Color) -> int:
@@ -203,6 +206,11 @@ def explore_move(b: chess.Board,
 
     move_is_interesting = is_interesting(b, move)
             
+    eval_diff, game_phase_diff = piece_vals_diff(b, move, prev_calc_params.current_game_phase)
+    next_eval, next_game_phase = \
+        prev_calc_params.current_eval + eval_diff, \
+            prev_calc_params.current_game_phase + game_phase_diff
+
     b.push(move)
     if next_depth <= 0:
         if next_ply_depth == 0:
@@ -224,15 +232,16 @@ def explore_move(b: chess.Board,
         is_leaf = False
             
     if is_leaf:
-            next_score = eval.eval(b)
-            res : Tuple[Eval, int] = ((SearchEvals.LEAF_EVAL, next_score), 1)
+            res : Tuple[Eval, int] = ((SearchEvals.LEAF_EVAL, next_eval), 1)
     else:
         params = CalcParams(next_depth,
                             next_ply_depth,
                             prev_calc_params.white_can_get, 
                             prev_calc_params.black_can_get, 
                             prev_calc_params.distance_from_root+1,
-                            next_interesting_moves_to_extend_for)
+                            next_interesting_moves_to_extend_for,
+                            next_eval,
+                            next_game_phase)
         search_res = calc_best_move(b, 
                                     params,
                                     quit_early,
@@ -291,7 +300,9 @@ def calc_best_move(b: chess.Board,
                                  white_can_get, 
                                  black_can_get, 
                                  params.distance_from_root, 
-                                 params.interesting_moves_to_extend_for)
+                                 params.interesting_moves_to_extend_for,
+                                 params.current_eval,
+                                 params.current_game_phase)
         next_eval, additional_positions_explored = \
             explore_move(b, 
                          move, 
@@ -348,12 +359,15 @@ def go(b: chess.Board, move_depth: int, quick: bool, linear: bool = True) -> Sea
     ply_depth = 0
     #repeat_moves_pre_search : dict[str, SearchRes] = {}
     #params_pre_search = CalcParams(move_depth//3, worst_white_score, worst_black_score, depth_from_root, interesting_moves_to_extend_for)
+    initial_eval, initial_game_phase = eval_piece_vals(b)
     params = CalcParams(move_depth, 
                         ply_depth,
                         (SearchEvals.LOSS, chess.WHITE), 
                         (SearchEvals.LOSS, chess.BLACK), 
                         depth_from_root, 
-                        interesting_moves_to_extend_for)
+                        interesting_moves_to_extend_for,
+                        initial_eval,
+                        initial_game_phase)
     quit_early = QuitEarly(b)
     # a mini search to prepopulate search_order
     #_ = calc_best_move(b, params_pre_search, quit_early, search_order, repeat_moves_pre_search, stats)

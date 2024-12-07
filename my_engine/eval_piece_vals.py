@@ -157,7 +157,7 @@ eg_tables = {
 }
 
 @profile
-def piece_value(square:chess.Square, piece:chess.Piece, mg_eg_ratio:float) -> float:
+def piece_values(square:chess.Square, piece:chess.Piece) -> tuple[float, float]:
     mg_base = mg_base_value[piece.piece_type]
     eg_base = eg_base_value[piece.piece_type]
     mg_add_table = mg_tables[piece.piece_type] 
@@ -169,21 +169,67 @@ def piece_value(square:chess.Square, piece:chess.Piece, mg_eg_ratio:float) -> fl
     position = (7 - chess.square_rank(square)) + chess.square_file(square)
     mg_add = mg_add_table[position]
     eg_add = eg_add_table[position]
-    scaled_score =  ((mg_base + mg_add) * mg_eg_ratio) + ((eg_base + eg_add) * (1 - mg_eg_ratio))
-    return scaled_score * mult
+    return (mg_base + mg_add) * mult, (eg_base + eg_add) * mult
 
-game_phase_table : dict[chess.PieceType, int] = {chess.PAWN:0, chess.KNIGHT:1, chess.BISHOP:1, chess.ROOK:2, chess.QUEEN:4, chess.KING:0}
+@profile
+def piece_value(square:chess.Square, piece:chess.Piece, mg_eg_ratio:float) -> float:
+    mg_score, eg_score = piece_values(square, piece)
+    return (mg_score * mg_eg_ratio) + (eg_score * (1. - mg_eg_ratio))
+
+game_phase_table : dict[chess.PieceType, int] =\
+    {chess.PAWN:0, chess.KNIGHT:1, chess.BISHOP:1, chess.ROOK:2, chess.QUEEN:4, chess.KING:0}
 @profile
 def game_phase(squares_and_pieces: list[Tuple[chess.Square, chess.Piece]]) -> float:
     totals = [game_phase_table[piece.piece_type] for _, piece in squares_and_pieces]
     res = float(sum(totals)) / 24.
     return res
     
-    
-    
 @profile
-def eval_piece_vals(b: chess.Board) -> float:
+def eval_piece_vals(b: chess.Board) -> tuple[float, float]:
     squares_and_pieces = b.piece_map().items()
     mg_eg_ratio = game_phase(squares_and_pieces)
     scores = [piece_value(square, piece, mg_eg_ratio) for square, piece in squares_and_pieces]
-    return sum(scores)
+    return sum(scores), mg_eg_ratio
+
+@profile
+def diff(b:chess.Board, move:chess.Move, game_phase:float) -> tuple[float, float]:
+    game_phase_diff = 0.
+    mg_piece_evals = 0.
+    eg_piece_evals = 0.
+    start_piece = b.piece_at(move.from_square)
+    assert start_piece is not None
+    turn_mult = 1. if b.turn == chess.WHITE else -1.
+    if (end_type := move.promotion):
+        game_phase_diff -= game_phase_table[start_piece.piece_type] * turn_mult
+        game_phase_diff += game_phase_table[end_type] * turn_mult
+    else:
+        end_type = start_piece.piece_type
+    mg_start, eg_start = piece_values(move.from_square, start_piece)
+    mg_end, eg_end = piece_values(move.to_square, chess.Piece(end_type, b.turn))
+    mg_piece_evals -= mg_start * turn_mult
+    eg_piece_evals -= eg_start * turn_mult
+    mg_piece_evals += mg_end * turn_mult
+    eg_piece_evals += eg_end * turn_mult
+    
+    if b.is_capture(move):
+        end_rank = chess.square_rank(move.to_square)
+        capture_file = chess.square_file(move.to_square)
+        if b.is_en_passant(move):
+            capture_rank = 3 if end_rank == 2 else 4
+        else:
+            capture_rank = end_rank
+
+        capture_square = chess.square(capture_file, capture_rank)
+        captured_piece = b.piece_at(capture_square)
+        if not captured_piece:
+            raise ValueError(b, move, b.is_en_passant(move), capture_file, capture_rank)
+        mg_captured, eg_captured = piece_values(capture_square, captured_piece)
+        mg_piece_evals -= mg_captured * (-1. * turn_mult)
+        eg_piece_evals -= eg_captured * (-1. * turn_mult)
+        game_phase_diff -= game_phase_table[captured_piece.piece_type] * (-1. * turn_mult)
+        
+    updated_game_phase = game_phase + game_phase_diff / 24.
+    piece_evals_diff = \
+        updated_game_phase * mg_piece_evals + \
+        (1. - updated_game_phase) * eg_piece_evals
+    return (piece_evals_diff, game_phase_diff)
