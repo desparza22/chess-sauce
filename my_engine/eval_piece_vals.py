@@ -198,18 +198,18 @@ def diff(b:chess.Board, move:chess.Move, game_phase:float) -> tuple[float, float
     eg_piece_evals = 0.
     start_piece = b.piece_at(move.from_square)
     assert start_piece is not None
-    turn_mult = 1. if b.turn == chess.WHITE else -1.
     if (end_type := move.promotion):
-        game_phase_diff -= game_phase_table[start_piece.piece_type] * turn_mult
-        game_phase_diff += game_phase_table[end_type] * turn_mult
+        game_phase_diff -= game_phase_table[start_piece.piece_type]
+        game_phase_diff += game_phase_table[end_type]
     else:
         end_type = start_piece.piece_type
     mg_start, eg_start = piece_values(move.from_square, start_piece)
     mg_end, eg_end = piece_values(move.to_square, chess.Piece(end_type, b.turn))
-    mg_piece_evals -= mg_start * turn_mult
-    eg_piece_evals -= eg_start * turn_mult
-    mg_piece_evals += mg_end * turn_mult
-    eg_piece_evals += eg_end * turn_mult
+    mg_piece_evals -= mg_start
+    eg_piece_evals -= eg_start
+    mg_piece_evals += mg_end
+    eg_piece_evals += eg_end
+    #print(mg_start, eg_start, mg_end, eg_end)
     
     if b.is_capture(move):
         end_rank = chess.square_rank(move.to_square)
@@ -224,11 +224,14 @@ def diff(b:chess.Board, move:chess.Move, game_phase:float) -> tuple[float, float
         if not captured_piece:
             raise ValueError(b, move, b.is_en_passant(move), capture_file, capture_rank)
         mg_captured, eg_captured = piece_values(capture_square, captured_piece)
-        mg_piece_evals -= mg_captured * (-1. * turn_mult)
-        eg_piece_evals -= eg_captured * (-1. * turn_mult)
-        game_phase_diff -= game_phase_table[captured_piece.piece_type] * (-1. * turn_mult)
+        #print(mg_captured, eg_captured)
+        mg_piece_evals -= mg_captured
+        eg_piece_evals -= eg_captured
+        game_phase_diff -= game_phase_table[captured_piece.piece_type]
         
-    updated_game_phase = game_phase + game_phase_diff / 24.
+    #print(mg_piece_evals, eg_piece_evals)
+    game_phase_diff /= 24.
+    updated_game_phase = game_phase + game_phase_diff
     piece_evals_diff = \
         updated_game_phase * mg_piece_evals + \
         (1. - updated_game_phase) * eg_piece_evals
