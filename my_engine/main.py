@@ -18,9 +18,8 @@ def uci(log: str) -> None:
 @click.option('--linear', is_flag=True, help="Scheme for ordering moves to search")
 @click.argument('depth', type=int)
 @click.argument('fens', type=str)
-@click.argument('log', type=str)
-def perf(depth: int, fens: str, linear: bool, log: str) -> None:
-    perf_main(depth, fens, log, linear)
+def perf(depth: int, fens: str, linear: bool) -> None:
+    perf_main(depth, fens, linear)
 
 @cli.command()
 @click.argument('fens', type=str)

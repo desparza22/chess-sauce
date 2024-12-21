@@ -23,12 +23,13 @@ class Stats:
     #lists
     extensions: list[int]
     moves_post_extensions: list[int]
-    def __init__(self):
+    def __init__(self, initial_eval: float):
         self.moves_at_depth = [0 for _ in range(400)]
         self.opt_moves_at_depth = [0 for _ in range(400)]
         self.explorations_at_depth = [0 for _ in range(400)]
         self.extensions = [0]
         self.moves_post_extensions = [0]
+        self.initial_eval = initial_eval
 
     @staticmethod
     def print_two_dec(l: list[float]) -> None:
@@ -56,6 +57,8 @@ class Stats:
         print(self.extensions)
         print("moves post extensions")
         print(self.moves_post_extensions)
+        print("initial eval")
+        print(self.initial_eval)
 
 class SearchEvals(Enum):
     # We have a list of moves and evals to return. This is the standard case.
@@ -118,6 +121,16 @@ def float_of_eval(moves_and_evals: Eval) -> float:
         raise ValueError(moves_and_evals)
     
     return eval_early_exit(moves_and_evals)
+
+def best_move_of_eval(eval: Eval) -> chess.Move:
+    if eval[0] is SearchEvals.FORCED:
+        best_move = eval[1]
+    elif eval[0] is SearchEvals.SUBMOVE_LIST:
+        best_move = eval[1][0][0]
+    else:
+        # should only happen if board is at end position
+        raise ValueError(eval)
+    return best_move
 
 def compare_evals(a:Eval, b:Eval, color:chess.Color) -> int:
     a_score = float_of_eval(a)
@@ -384,13 +397,13 @@ def calc_best_move(b: chess.Board,
             repeat_moves[pos_rep] = search_res
         return search_res
     
-def go(b: chess.Board, move_depth: int, linear: bool = True) -> SearchRes:
+def go(b: chess.Board, move_depth: int, linear: bool = True) -> tuple[SearchRes, Stats]:
     if linear:
         search_order : SearchOrder = LinearReward()
     else:
         search_order = RandomOrder()
     
-    stats = Stats()
+
     depth_from_root = 0
     repeat_moves : dict[str, SearchRes] = {}
     ply_depth = 0
@@ -398,6 +411,7 @@ def go(b: chess.Board, move_depth: int, linear: bool = True) -> SearchRes:
     #repeat_moves_pre_search : dict[str, SearchRes] = {}
     #params_pre_search = CalcParams(move_depth//3, worst_white_score, worst_black_score, depth_from_root, interesting_moves_to_extend_for)
     initial_eval, initial_game_phase = eval_piece_vals(b)
+    stats = Stats(initial_eval)
     params = CalcParams(move_depth, 
                         ply_depth,
                         check_extensions,
@@ -412,7 +426,7 @@ def go(b: chess.Board, move_depth: int, linear: bool = True) -> SearchRes:
     #sequence_to_track = [chess.Move.from_uci(uci) for uci in ["g1e3", "d8d1", "e3c1", "f6g5"]]
     sequence_to_track = None
     moves_from_root : list[chess.Move] = []
-    res = calc_best_move(b,
+    res : SearchRes = calc_best_move(b,
                          params,
                          quit_early,
                          search_order,
@@ -421,4 +435,4 @@ def go(b: chess.Board, move_depth: int, linear: bool = True) -> SearchRes:
                          stats,
                          sequence_to_track)
     #stats.print()
-    return res
+    return (res, stats)

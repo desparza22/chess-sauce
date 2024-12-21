@@ -74,21 +74,10 @@ def go_response(fields : dict[str, str], b:chess.Board) -> Response:
     if "movetime" in fields:
         movetime = max(10000, int(fields["movetime"]))
         depth = int(movetime * 0.7)
-    res = engine.go(b, depth)
-    
-    if res.sorted_moves[0] is engine.SearchEvals.FORCED:
-        best_move = res.sorted_moves[1]
-        extra = ""
-    elif res.sorted_moves[0] is engine.SearchEvals.SUBMOVE_LIST and res.explored is not None:
-        best_move = res.sorted_moves[1][0][0]
-        extra = ",".join([f"{move} {engine.print_eval(eval)}" 
-                            for move, eval in res.explored])
-    else:
-        # should only happen if board is at end position
-        raise ValueError(f"sorted: {res.sorted_moves}\n\nexplored: {res.explored}")
+    res, _ = engine.go(b, depth)
 
-
-    log = f"explored: {res.positions_explored}\nextra context: {extra}"
+    log = f"explored: {res.positions_explored}"
+    best_move = engine.best_move_of_eval(res.sorted_moves)
     return Response(False, [f"bestmove {chess.Move.uci(best_move)}"], chess.Board(), log)
 
 def dynamic_response(input:list[str], b:chess.Board) -> Response:
