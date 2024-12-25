@@ -166,7 +166,7 @@ def piece_values(square:chess.Square, piece:chess.Piece) -> tuple[float, float]:
     if piece.color == chess.BLACK:
         square = chess.square_mirror(square)
         mult = -1
-    position = (7 - chess.square_rank(square)) + chess.square_file(square)
+    position = 64 - ((8 * chess.square_rank(square)) + (8 - chess.square_file(square)))
     mg_add = mg_add_table[position]
     eg_add = eg_add_table[position]
     return (mg_base + mg_add) * mult, (eg_base + eg_add) * mult
