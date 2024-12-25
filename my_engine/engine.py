@@ -168,7 +168,9 @@ class CalcParams:
     # if we run out of move_depth to explore, ply_depth says how many additional
     # plies to explore
     ply_depth: int
-    check_extensions : int
+    check_big_extensions : int # continue searching with more depth after check
+    check_small_extensions : int # continue searching with same depth after check
+    capture_small_extensions : int
     white_can_get: Eval
     black_can_get: Eval
     distance_from_root: int
@@ -225,7 +227,9 @@ def explore_move(b: chess.Board,
                  sequence_to_track: Optional[list[chess.Move]]) -> Tuple[Eval, int]:
     next_depth = prev_calc_params.move_depth // sibling_move_count
     next_ply_depth = prev_calc_params.ply_depth
-    next_check_extensions = prev_calc_params.check_extensions
+    next_check_big_extensions = prev_calc_params.check_big_extensions
+    next_check_small_extensions = prev_calc_params.check_small_extensions
+    next_capture_small_extensions = prev_calc_params.capture_small_extensions
         
     is_first_extension = False
     is_extension = False
@@ -236,6 +240,11 @@ def explore_move(b: chess.Board,
             prev_calc_params.current_game_phase + game_phase_diff
 
 
+    # current recursion pattern goes depth first, really deep down paths with
+    # captures and checks. Should do a shallower search first, might find a good
+    # move quickly down a different branch.
+    # Until we've set it up to search like this, we just have to limit capture
+    # and check extension depth.
     interestingness = Interestingness.UNINTERESTING
     if b.is_capture(move):
         interestingness = Interestingness.CAPTURE
@@ -244,13 +253,15 @@ def explore_move(b: chess.Board,
         interestingness = Interestingness.CHECK
         
     if next_depth <= 0 and next_ply_depth <= 0:
-        if interestingness == Interestingness.CAPTURE:
+        if interestingness == Interestingness.CAPTURE and next_capture_small_extensions > 0:
+            next_capture_small_extensions -= 1
             next_depth = prev_calc_params.move_depth
             #print(move, prev_calc_params.distance_from_root, next_depth)
             is_leaf = False
-        elif interestingness == Interestingness.CHECK:
-            if next_check_extensions > 0:
-                next_check_extensions -= 1
+        elif interestingness == Interestingness.CHECK and next_check_small_extensions > 0:
+            next_check_small_extensions -= 1
+            if next_check_big_extensions > 0:
+                next_check_big_extensions -= 1
                 next_ply_depth += 1
             is_leaf = False
         else:
@@ -265,7 +276,9 @@ def explore_move(b: chess.Board,
     else:
         params = CalcParams(next_depth,
                             next_ply_depth,
-                            next_check_extensions,
+                            next_check_big_extensions,
+                            next_check_small_extensions,
+                            next_capture_small_extensions,
                             prev_calc_params.white_can_get, 
                             prev_calc_params.black_can_get, 
                             prev_calc_params.distance_from_root+1,
@@ -290,6 +303,12 @@ def explore_move(b: chess.Board,
     b.pop()
     return res
 
+def comp_lists(a : list[str], b : list[str]) -> bool:
+    if len(a) != len(b):
+        return False
+    
+    return all([a_ == b_ for a_, b_ in zip(a, b)])
+
 @profile
 def calc_best_move(b: chess.Board,
                    params: CalcParams,
@@ -301,7 +320,11 @@ def calc_best_move(b: chess.Board,
                    sequence_to_track : Optional[list[chess.Move]]) -> SearchRes:
     positions_explored = 0
     pos_rep : Optional[str] = None
-    if params.distance_from_root >= 3 and params.distance_from_root <= 6:
+    # this repeat method is currently bad so we disable. consider a capture
+    # where black moves a piece to an open square then white captures. that
+    # appears as the same position as white moving first to the open square and
+    # black capturing.
+    if False and params.distance_from_root >= 3 and params.distance_from_root <= 6:
         # TODO:
         # We miss a decent number of repeats with this cheaper check. for
         # [7k/8/7p/1pb5/4PP2/3p2Q1/2q4P/5RKR w - - 0 41] at 30,000, 2700 repeats
@@ -347,7 +370,9 @@ def calc_best_move(b: chess.Board,
             next_sequence_to_track = None
         calc_params = CalcParams(params.move_depth, 
                                  params.ply_depth,
-                                 params.check_extensions,
+                                 params.check_big_extensions,
+                                 params.check_small_extensions,
+                                 params.capture_small_extensions,
                                  white_can_get, 
                                  black_can_get, 
                                  params.distance_from_root, 
@@ -366,6 +391,7 @@ def calc_best_move(b: chess.Board,
                          next_sequence_to_track)
         positions_explored += additional_positions_explored
         explored_moves.append((move, next_eval))
+        og_w, og_b = white_can_get, black_can_get
         if b.turn == chess.WHITE and \
             compare_evals(next_eval, white_can_get, chess.WHITE) < 0:
             white_can_get = next_eval
@@ -395,6 +421,7 @@ def calc_best_move(b: chess.Board,
         search_res = SearchRes(sorted_moves, positions_explored, sorted_explored_moves)
         if pos_rep:
             repeat_moves[pos_rep] = search_res
+
         return search_res
     
 def go(b: chess.Board, move_depth: int, linear: bool = True) -> tuple[SearchRes, Stats]:
@@ -407,14 +434,18 @@ def go(b: chess.Board, move_depth: int, linear: bool = True) -> tuple[SearchRes,
     depth_from_root = 0
     repeat_moves : dict[str, SearchRes] = {}
     ply_depth = 0
-    check_extensions = 0
+    check_big_extensions = 0
+    check_small_extensions = 10
+    capture_small_extensions = 10
     #repeat_moves_pre_search : dict[str, SearchRes] = {}
     #params_pre_search = CalcParams(move_depth//3, worst_white_score, worst_black_score, depth_from_root, interesting_moves_to_extend_for)
     initial_eval, initial_game_phase = eval_piece_vals(b)
     stats = Stats(initial_eval)
     params = CalcParams(move_depth, 
                         ply_depth,
-                        check_extensions,
+                        check_big_extensions,
+                        check_small_extensions,
+                        capture_small_extensions,
                         (SearchEvals.LOSS, chess.WHITE), 
                         (SearchEvals.LOSS, chess.BLACK), 
                         depth_from_root, 
@@ -435,4 +466,5 @@ def go(b: chess.Board, move_depth: int, linear: bool = True) -> tuple[SearchRes,
                          stats,
                          sequence_to_track)
     #stats.print()
+    #print(res)
     return (res, stats)
